@@ -15,7 +15,7 @@ require_once('ArtxunWalletsWithdraw.php');
 /**
 莫有办法 有的不能公开的 直接删掉 这只是展示一种思路
 
-/*
+*/
 
 class ArtxunWalletsTask
 {
