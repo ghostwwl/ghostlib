@@ -1,0 +1,236 @@
+#!/usr/bin/evn python
+#-*- coding:utf-8 -*-
+
+import time
+from GFunc import message, datetime, date2s
+from pxoracle import ClassOracle
+from pxmysql import ClassMySql
+import traceback
+
+class ConvertOracle2Mysql(object):
+    def __init__(self):
+        self.odbhost = '192.168.*.***:1521'
+        self.odbuser = '****'
+        self.odbpwd = '****'
+        self.odbname = 'WEBDB'
+        self.oracledb = ClassOracle(self.odbhost, self.odbuser, self.odbpwd, self.odbname)
+        self.dbhost = '192.168.x.xx'
+        self.dbuser = 'xxxxx'
+        self.dbpwd = 'xxxxx'
+        self.dbname = 'mxxxxyxxmaxxxxxll_artxun'
+        self.db = ClassMySql(self.dbhost, self.dbuser, self.dbpwd, self.dbname, True)
+        self.maxid = 0
+        self.over_flag = False
+        # 注意src_fields 里面每一个元素都是元组 第一个字段名 第二个是转化器函数
+        self.task = {
+            'audit':{'src_table':'bobaoodb.bb_expert_auditresult', 'dst_table':'ecm_expert_audit',
+                     'src_fields':('id','logid','expertid','audittime','auditresult',
+                                   'remark','inuse','score','recommend','islock','auditstate',
+                                   'prodscore','toshop','isbest','kind','note','type','verify_expert',
+                                   'mianshen','confirmtime','is_jiesuan','jiesuan_time',
+                                   'jiesuan_detail_id','fushen_is_jiesuan','fushen_jiesuan_time',
+                                   'fushen_jiesuan_detail_id','gujia'),
+                     'dst_fields':('id','logid','expertid','audittime','auditresult',
+                                   'remark','inuse','score','recommend','islock','auditstate',
+                                   'prodscore','toshop','isbest','kind','note','type','verify_expert',
+                                   'mianshen','confirmtime','is_jiesuan','jiesuan_time',
+                                   'jiesuan_detail_id','fushen_is_jiesuan','fushen_jiesuan_time',
+                                   'fushen_jiesuan_detail_id','gujia'),
+                     'convert_function':{'audittime':self.condate, 'confirmtime':self.condate,
+                                         'jiesuan_time':self.condate, 
+                                         'fushen_jiesuan_time':self.condate},
+                     'where_param': (),
+                     },
+            'goods':{'src_table':'bobaoodb.bb_expert_auditlog', 'dst_table':'ecm_expert_goods',
+                     'src_fields':('id','channel','userid','username','targetid','name','price',
+                                   'special','isspecial','isshop','shoptype','kind','sizes',
+                                   'images','addtime','resultid','total','description','is_jiaji',
+                                   'mobile','tel','url','end_time','keyword','reach_bids',
+                                   'reserved_price','increment_num','simage','phone','is_gujia'),
+                     'dst_fields':('id','channel','userid','username','targetid','name','price',
+                                   'special','isspecial','isshop','shoptype','kind','sizes',
+                                   'images','addtime','resultid','total','description','is_jiaji',
+                                   'mobile','tel','url','end_time','keyword','reach_bids',
+                                   'reserved_price','increment_num','simage','phone','is_gujia'),
+                     'convert_function':{'addtime':self.condate, 'end_time':self.condate,
+                                         'description':self.condesc},
+                     'where_param': ('resultid > 0'),
+                    },
+            'member':{'src_table':'bobaoodb.bb_expert', 'dst_table':'ecm_expert_member',
+                      'src_fields':('id','userid','username','name','education','major','phone',
+                                    'email','resume','applytime','updatetime','audittime','rank',
+                                    'auditstate','record','qq'), 
+                      'dst_fields':('expert_id','user_id','user_name','expert_name','expert_education',
+                                    'expert_major','expert_phone','expert_email','expert_resume',
+                                    'reg_time','modified','audittime','grade','state','expert_records',
+                                    'expert_qq'), 
+                      'convert_function':{'applytime':self.condate, 'updatetime':self.condate,
+                                          'audittime':self.condate, 'major':self.conzy, 'rank':self.conrank,
+                                          'qq':self.condesc,'resume':self.condesc,'education':self.condesc},
+                      'where_param': ('power in (0,1)',),
+                      },
+            'arb':{'src_table':'BOBAOODB.BB_USER_COMPLAIN', 'dst_table':'ecm_arb_arbitrate', 
+                   'src_fields':('id','user_id','kind','name','url','description','images','created',
+                                 'updatetime','status','total','remark','tid','pid','order_num'),
+                   'dst_fields':('id','user_id','kind','name','url','description','images','created',
+                                 'updatetime','status','total','remark','tid','pid','order_num'),
+                   'convert_function':{'created':self.conmics, 'updatetime':self.conmics},
+                   'where_param': (),
+                   },
+        }
+        self.get_limit = 100
+    
+    def conmics(self, record, field_name):
+        if record[field_name]:
+            record[field_name] = int(record[field_name])/1000
+        
+    def condesc(self, record, field_name):
+        if not record[field_name]:
+            record[field_name] = " "
+        
+    def condate(self, record, field_name):
+        if record[field_name]:
+            try:
+                record[field_name] = date2s(datetime.strptime(str(record[field_name]), '%Y%m%d%H%M%S'))
+            except:pass
+    
+    def conzy(self, record, field_name):
+        zyhash = {'陶瓷':1, '玉器':2, '书画':3, '铜器':4, '钱币':5, '木器':6, '杂项':7}
+        if record[field_name]:
+            try:
+                if zyhash.has_key(record[field_name]):
+                    record[field_name] = zyhash[record[field_name]]
+            except:pass
+
+    def conrank(self, record, field_name):
+        if record.has_key(field_name):
+            try:
+                if 0<=record[field_name]<=1:
+                    record[field_name] = record[field_name] + 1
+            except:pass
+            
+    def get_src(self, task_name):
+        result_list = []
+        task = self.task[task_name]
+        other_param = ''
+        if task['where_param'] : other_param = " AND ".join(task['where_param'])
+        if other_param: other_param = " AND %s" % other_param
+        sql = '''select * from(select %s from %s where %s>:maxid %s order by %s asc) t  
+        where rownum <=:count''' % (','.join(task['src_fields']), task['src_table'], 
+                                    task['src_fields'][0], other_param, task['src_fields'][0])
+        print sql
+        flag, result = self.oracledb.execute(sql, (self.maxid, self.get_limit), checklob=True)
+        if flag and result:
+            for item in result:
+                dict_item = dict(zip(task['src_fields'], item))
+                result_list.append(dict_item)
+        if not flag:
+            message(str(result), 3)
+        if flag and not result:
+            self.over_flag = True
+        return result_list
+    
+    def get_expert_permission(self, item):
+        NEW_PERMISS_HASH = {1:'jianbao_', 2:'shop_', 3:'pai_', 4:'mall_', 8:'complain_'}
+        sql = 'select id, expertid, channel,kind,bcp,mianshen,zhuguan from BOBAOODB.bb_expert_powers where expertid=:expid'
+        if item.has_key('id'):
+            flag, result = self.oracledb.execute(sql, (item['id'],))
+            if flag and result:
+                permission = []
+                for p in result:
+                    pre_fix = NEW_PERMISS_HASH[p[2]]
+                    if p[-1] == 1:permission.append("%szhuguan" % pre_fix)
+                    if p[-2] == 1:permission.append("%smianshen" % pre_fix)
+                    if p[-3] == 1:permission.append("%sbcp" % pre_fix)
+                    if p[3]:
+                        for k in p[3].split(','):
+                            permission.append("%s%s" % (pre_fix, k))
+                return ','.join(permission)
+            else:
+                message('get qx err.(%s) [%s]' % (str(result), item['id']))
+                return None
+        return None
+            
+    def get_expert(self, task_name):
+        while 1:
+            try:
+                task_list = self.get_src(task_name)
+                if task_list:
+                    sql_list = []
+                    for item in task_list:
+                        for fn, cf in self.task[task_name]['convert_function'].items():
+                            cf(item, fn)
+                        sql_in = '''insert into %s (%s,priv) values(%s,%%s)''' % (self.task[task_name]['dst_table'],
+                                                                         ','.join(self.task[task_name]['dst_fields']),
+                                                                         ','.join(map(lambda x: '%s', range(len(self.task[task_name]['dst_fields'])))))
+                        #print sql_in
+                        self.maxid = max(self.maxid, item[self.task[task_name]['src_fields'][0]])
+                        premiss = self.get_expert_permission(item)
+                        sql_list.append((sql_in, tuple(map(lambda x: item.get(x, None),self.task[task_name]['src_fields']))+(premiss,) ))
+                    if sql_list:
+                        flag, result = self.db.executemany(sql_list)
+                        if flag:
+                            suc = len(filter(lambda x:x[0], result))
+                            err = len(filter(lambda x:not x[0], result))
+                            #test 打印出批量执行里所有执行错误
+                            for i in result:
+                                if not i[0]: print i[1]
+                            message('maxid %d insert %s suc[%d] err[%d]' % (self.maxid, self.task[task_name]['dst_table'], suc, err))
+                        else:
+                            message('insert into %s failed.(%s)' % (self.task[task_name]['dst_table'], str(result)), 3)
+                time.sleep(0.02)
+                if self.over_flag:break
+            except Exception,e:
+                print traceback.format_exc()
+                message("main loop err.(%s)" % str(e))
+        self.oracledb.disconnect()
+        self.db.disconnect()
+    
+    def main(self, task_name):
+        while 1:
+            try:
+                task_list = self.get_src(task_name)
+                if task_list:
+                    sql_list = []
+                    for item in task_list:
+                        for fn, cf in self.task[task_name]['convert_function'].items():
+                            cf(item, fn)
+                        sql_in = '''insert into %s (%s) values(%s)''' % (self.task[task_name]['dst_table'],
+                                                                         ','.join(self.task[task_name]['dst_fields']),
+                                                                         ','.join(map(lambda x: '%s', range(len(self.task[task_name]['dst_fields'])))))
+                        #print sql_in
+                        self.maxid = max(self.maxid, item[self.task[task_name]['src_fields'][0]])
+                        sql_list.append((sql_in, tuple(map(lambda x: item.get(x, None),self.task[task_name]['src_fields']))))
+                    if sql_list:
+                        flag, result = self.db.executemany(sql_list)
+                        if flag:
+                            suc = len(filter(lambda x:x[0], result))
+                            err = len(filter(lambda x:not x[0], result))
+                            #test 打印出批量执行里所有执行错误
+                            for i in result:
+                                if not i[0]: print i[1]
+                            message('maxid %d insert %s suc[%d] err[%d]' % (self.maxid, self.task[task_name]['dst_table'], suc, err))
+                        else:
+                            message('insert into %s failed.(%s)' % (self.task[task_name]['dst_table'], str(result)), 3)
+                time.sleep(0.02)
+                if self.over_flag:break
+            except Exception,e:
+                print traceback.format_exc()
+                message("main loop err.(%s)" % str(e))
+        self.oracledb.disconnect()
+        self.db.disconnect()
+                        
+                        
+if __name__ == '__main__':
+    T = ConvertOracle2Mysql()
+    #T.get_expert('member')
+    #T.maxid = 0
+    #T.over_flag = False
+    #T.main('arb')
+    T.maxid = 0
+    T.over_flag = False
+    T.main('goods')
+    #T.maxid = 745445
+    #T.over_flag = False
+    #T.main('audit')
+    
