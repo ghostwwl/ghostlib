@@ -729,3 +729,40 @@ class ArtxunWalletsTask
 
 
 
+if (function_exists('opcache_reset')) opcache_reset();
+
+$longopts = ['type:', 'help::', ];
+$select_type = getopt('', $longopts);
+
+if (!isset($select_type['type']) || isset($select_type['help'])){
+	echo PHP_EOL;
+	echo 'Useage: ArtxunWalletsTask.php --type=[1..7]';
+	echo PHP_EOL;
+	exit();
+}
+if (!is_numeric($select_type['type'])){
+	echo PHP_EOL;
+	echo 'Invaild Param type';
+	exit();
+}
+switch ((int)$select_type['type'])
+{
+	case 1:
+	case 2:
+	case 3:
+	case 4:
+	case 5:
+	case 6:
+	case 7:
+		$GLOBALS['_ARTXUN_TASK_SERVER'] = new ArtxunWalletsTask();
+		$TaskPid                        = posix_getpid();
+		echo PHP_EOL;
+		echo '------ Start Artxun Task Server PID: '.$TaskPid. '------';
+		echo PHP_EOL;
+		echo PHP_EOL;
+		echo PHP_EOL;
+		$GLOBALS['_ARTXUN_TASK_SERVER']->processEntry($select_type['type']);
+		break;
+	default:
+		exit('无效的任务类型');
+}
