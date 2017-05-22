@@ -219,7 +219,7 @@ class MemFileSystem(object):
                         self.FreeBlackList.append(i)
                         self.FreeBlackNum += 1
                     self.FreeBlackList.sort()
-                    del self.FileTable(id)
+                    del self.FileTable[id]
                 except:
                     self.debuginfo("write file %s error: %s" % (filename, str(err)))
                 flg = -1
@@ -230,7 +230,7 @@ class MemFileSystem(object):
             flg = len(data)
         return flg
                 
-    def read(self, filename, flg = True):
+    def read(self, filename, byte, flg = True):
         '''
         byte 需要读取的字节数 默认是读取整个文件
         flg 读取文件,读完后是否释放虚拟页 默认读完后释放虚拟页
@@ -278,8 +278,8 @@ class MemFileSystem(object):
         try:
             if self.FileTable.has_key(id):
                 for i in self.FileTable[id]['index']:
-                    pageinifo = self.BlackPageTable.get(i)
-                    self.Black.reuse(pageinfo['offset'], pageinifo['bytes'])
+                    pageinfo = self.BlackPageTable.get(i)
+                    self.Black.reuse(pageinfo['offset'], pageinfo['bytes'])
                     pageinfo['isfull'] = False
                     self.FreeBlackList.append(i)
                     self.FreeBlackNum += 1
@@ -298,7 +298,7 @@ class MemFileSystem(object):
         删除目录
         '''
         try:
-            head, tail = os.path.split(director)
+            head, tail = os.path.split(dir)
             dirs = head
             if tail:
                 dirs += tail
@@ -326,10 +326,10 @@ class MemFileSystem(object):
         通用删除接口
         '''
         try:
-            self.Attribute(path_or_file)
+            f = self.Attribute(path_or_file)
             if f == 1:
                 self.del_file(path_or_file)
-            if d == 2:
+            if f == 2:
                 self.del_dir(path_or_file)
             return 1
         except Exception, err:
@@ -424,7 +424,7 @@ class MemFileSystem(object):
         recursive:是否包含子目录
         '''
         zipflg = False
-        sname = sanme.strip()
+        sname = sname.strip()
         try:
             if dname.endswith(".zip") or dname.endswith(".gz"):
                 zipflg = True
